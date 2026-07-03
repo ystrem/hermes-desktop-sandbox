@@ -1,0 +1,90 @@
+# Firejail profile for Hermes Agent Desktop (Electron)
+# ~/.config/firejail/hermes-desktop.local
+
+# --- Capabilities ---
+caps.drop all
+
+# --- Network ---
+protocol unix,inet,inet6
+netfilter
+# Block multicast / local discovery noise
+netfilter6
+
+# --- Filesystem ---
+# Private /tmp (fresh tmpfs each run)
+private-tmp
+
+# Home directory: read-only by default
+# Then whitelist what Hermes needs
+read-only ${HOME}
+read-write ${HOME}/.hermes
+read-write ${HOME}/.local/share/hermes
+read-write ${HOME}/.config/fontconfig
+read-write ${HOME}/.cache/fontconfig
+
+# Block sensitive paths entirely
+blacklist ${HOME}/.ssh
+blacklist ${HOME}/.gnupg
+blacklist ${HOME}/.config/Bitwarden
+blacklist ${HOME}/.config/chromium
+blacklist ${HOME}/.config/google-chrome
+blacklist ${HOME}/.config/BraveSoftware
+blacklist ${HOME}/.bash_history
+blacklist ${HOME}/.zsh_history
+blacklist ${HOME}/.python_history
+blacklist ${HOME}/.lesshst
+blacklist ${HOME}/.mysql_history
+blacklist ${HOME}/.psql_history
+blacklist ${HOME}/.config/gh
+blacklist ${HOME}/.docker/config.json
+blacklist ${HOME}/.git-credentials*
+
+# --- Devices ---
+nodvd
+nou2f
+nogroups
+
+# Drop webcam and audio by default
+# Comment these out if you use voice conversations with Hermes
+# nogroups allows /dev/snd access
+# Also remove 'nodbus' below for pipewire/pulse
+
+# --- Kernel security ---
+seccomp
+noroot
+no3d
+nosound
+notv
+nocpu
+
+# --- Namespaces ---
+# (all enabled by default in Firejail 0.9.72+)
+
+# --- D-Bus ---
+# Block D-Bus access (no notifications, no MPRIS, no desktop integration)
+# Remove this if you want system tray / notifications
+nodbus
+nodbus-user
+
+# --- Shell ---
+shell none
+
+# --- Remounts ---
+disable-mnt
+
+# --- X11 / Wayland ---
+# X11 should work out of the box through the default sandbox
+# Wayland: firejail has --x11=xorg or --x11=wayland flags
+# Add --x11=xorg below if running on X11
+
+# --- Memory address space limits ---
+# Electron is memory-hungry, don't clamp it too hard
+# rlimits as-needed: default firejail limits are fine
+
+# --- Environment cleanup ---
+env DISPLAY=${DISPLAY}
+env WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
+env XAUTHORITY=${XAUTHORITY}
+env XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
+env DBUS_SESSION_BUS_ADDRESS=
+env PULSE_SERVER=
