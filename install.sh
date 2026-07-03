@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROFILE_SRC="${SCRIPT_DIR}/hermes-desktop.local"
+NETFILTER_SRC="${SCRIPT_DIR}/hermes-desktop.net"
 WRAPPER_SRC="${SCRIPT_DIR}/run-hermes-desktop.sh"
 PROFILE_DIR="${HOME}/.config/firejail"
 BIN_DIR="${HOME}/.local/bin"
@@ -19,7 +20,15 @@ fi
 echo "==> Copying Firejail profile..."
 mkdir -p "${PROFILE_DIR}"
 cp "${PROFILE_SRC}" "${PROFILE_DIR}/hermes-desktop.local"
+cp "${NETFILTER_SRC}" "${PROFILE_DIR}/hermes-desktop.net"
 echo "  → ${PROFILE_DIR}/hermes-desktop.local"
+echo "  → ${PROFILE_DIR}/hermes-desktop.net"
+
+echo ""
+echo "==> ⚠️  Edit netfilter rules before first run!"
+echo "    Set your allowed local IP in: ${PROFILE_DIR}/hermes-desktop.net"
+echo "    Uncomment the line with your AI worker / aicore IP"
+echo ""
 
 echo "==> Installing wrapper script..."
 mkdir -p "${BIN_DIR}"
@@ -53,5 +62,8 @@ fi
 
 echo ""
 echo "==> Done!"
-echo "Run sandboxed Hermes desktop:   hermes-desktop-sandbox"
+echo "Before first run, edit your network rules:"
+echo "  vim ${PROFILE_DIR}/hermes-desktop.net"
+echo ""
+echo "Then run:  hermes-desktop-sandbox"
 echo ""

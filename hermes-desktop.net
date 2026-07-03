@@ -1,0 +1,42 @@
+# Hermes Desktop netfilter — restrict outbound to specific hosts
+# Allow loopback
+-A OUTPUT -o lo -j ACCEPT
+
+# Allow DNS (required for local gateway resolution AND API provider lookups)
+# If you know the API provider IPs, you can replace this with explicit allows
+-A OUTPUT -p udp --dport 53 -j ACCEPT
+-A OUTPUT -p tcp --dport 53 -j ACCEPT
+
+# Allow DHCP
+-A OUTPUT -p udp --dport 67:68 -j ACCEPT
+
+# Allow ICMP (ping, path MTU)
+-A OUTPUT -p icmp -j ACCEPT
+
+# Allow established/related connections (responses to our outbound)
+-A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# === Local network ===
+# Gateway — communicates with Hermes gateway on the same machine
+-A OUTPUT -d 127.0.0.1/32 -j ACCEPT
+-A OUTPUT -d ::1/128 -j ACCEPT
+
+# Allow specific local IP (e.g., ai-worker with LLM APIs, or aicore)
+# Uncomment and set your IP below:
+# -A OUTPUT -d 192.168.10.194/32 -j ACCEPT
+
+# === API providers (for LLM API calls) ===
+# If Hermes talks to external API providers directly (not proxied through local gateway),
+# uncomment the ones you use:
+# -A OUTPUT -d api.openai.com -j ACCEPT
+# -A OUTPUT -d api.anthropic.com -j ACCEPT
+# -A OUTPUT -d openrouter.ai -j ACCEPT
+# -A OUTPUT -d api.groq.com -j ACCEPT
+# -A OUTPUT -d api.together.xyz -j ACCEPT
+# -A OUTPUT -d us.ya.ru -j ACCEPT   # Yandex
+# -A OUTPUT -d dashscope.aliyuncs.com -j ACCEPT  # Alibaba/Qwen
+# -A OUTPUT -d api.minimaxi.com -j ACCEPT
+
+# Drop everything else
+-A OUTPUT -j REJECT
+-A INPUT -j DROP

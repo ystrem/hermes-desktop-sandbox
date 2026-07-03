@@ -4,7 +4,7 @@ Firejail sandbox profile for isolating the [Hermes Agent](https://hermes-agent.n
 
 ## Why sandbox the Hermes desktop?
 
-The Hermes desktop app is an **Electron shell** (Chromium + Node.js) that has access to:
+The Hermes desktop app is an **Electron shell** (Chromium + Node.js) with access to:
 
 - Your `~/.hermes/` config (API keys, tokens, sessions)
 - Terminal execution via the integrated TTY
@@ -13,19 +13,20 @@ The Hermes desktop app is an **Electron shell** (Chromium + Node.js) that has ac
 
 Sandboxing with Firejail restricts:
 
-- **Filesystem** — Hermes can only read/write paths it actually needs
-- **Capabilities** — no kernel privileges
-- **Network** — limited to API providers and local gateway
-- **Temp** — isolated `/tmp` to prevent /tmp race attacks
-- **Devices** — no webcam/microphone unless explicitly needed
+- **Filesystem** — only `~/.hermes/` writable, everything else blocked
+- **Network** — only localhost + one whitelisted local IP
+- **Capabilities** — none
+- **Temp** — isolated `/tmp`
+- **Sensitive data** — SSH keys, GPG, vaults, shell histories hidden
 
 ## What's in here
 
 | File | Purpose |
 |------|---------|
 | `hermes-desktop.local` | Firejail profile — sandbox rules |
+| `hermes-desktop.net` | Netfilter rules — restrict to specific IPs |
 | `run-hermes-desktop.sh` | Wrapper script to launch the sandboxed desktop |
-| `install.sh` | One-shot setup (copies profile, creates desktop entry) |
+| `install.sh` | One-shot setup (copies profiles, creates launcher) |
 
 ## Quick start
 
@@ -33,24 +34,43 @@ Sandboxing with Firejail restricts:
 # Install Firejail (Arch/CachyOS)
 sudo pacman -S firejail
 
-# Run the setup
+# Clone and install
+git clone https://github.com/ystrem/hermes-desktop-sandbox
+cd hermes-desktop-sandbox
 bash install.sh
+
+# EDIT the netfilter rules before first run:
+vim ~/.config/firejail/hermes-desktop.net
+# → uncomment the line with your local IP (ai-worker, aicore, etc.)
 
 # Launch sandboxed Hermes desktop
 hermes-desktop-sandbox
 ```
 
-Or manually:
+## Network isolation
 
-```bash
-# Build the desktop first (from hermes-agent repo)
-cd ~/.hermes/hermes-agent/apps/desktop
-npm run dist:linux
+By default, Hermes can **only** talk to:
 
-# Run it sandboxed
-firejail --profile=hermes-desktop.local \
-  ~/.hermes/hermes-agent/apps/desktop/release/Hermes-*.AppImage
+- `localhost` (127.0.0.1) — the local Hermes gateway
+- DNS (for name resolution)
+- **One local IP** you whitelist in `hermes-desktop.net`
+
+To whitelist your IP, edit `~/.config/firejail/hermes-desktop.net` and uncomment:
 ```
+-A OUTPUT -d 192.168.10.194/32 -j ACCEPT
+```
+
+Everything else is dropped by `iptables`. If Hermes needs to reach external API providers directly (not proxied through local gateway), uncomment the relevant lines for `api.openai.com`, `api.anthropic.com`, etc.
+
+## Microphone (dictation)
+
+Microphone works — the profile preserves:
+
+- PulseAudio/PipeWire sockets
+- ALSA config
+- `/dev/snd` access
+
+No extra configuration needed. If audio stops working, check that `nogroups` is **not** set (it's commented out by default).
 
 ## What gets restricted
 
@@ -58,27 +78,15 @@ firejail --profile=hermes-desktop.local \
 |------|-------------|
 | SSH keys | Blocked (`~/.ssh`) |
 | GPG keys | Blocked (`~/.gnupg`) |
-| Password stores | Blocked (`~/.config/Bitwarden`, `~/.config/chromium`) |
+| Password stores | Blocked (`~/.password-store`, `~/.config/Bitwarden`) |
+| Browser data | Blocked (Chromium, Chrome, Brave, Edge) |
 | Shell config | Blocked (`~/.bash_history`, `~/.zsh_history`) |
 | /tmp | Private (binds to new empty tmpfs) |
-| D-Bus | Blocked (no MPRIS, no desktop notifications) |
-| Kernel | No new privileges, no realtime, no modules |
-| Devices | No webcam, no audio capture |
-| Network | Restricted to AF_UNIX, AF_INET, AF_INET6 only |
+| Network | Only 127.0.0.1 + whitelisted IP |
+| Kernel | No new privileges, seccomp |
 | Capabilities | All dropped |
 
-## Allowed paths
-
-Hermes needs write access to:
-
-- `~/.hermes/` — config, sessions, logs, skills
-- `~/.local/share/hermes/` — application data
-
-Everything else in `$HOME` is read-only or blocked.
-
 ## Building the desktop AppImage
-
-If you haven't built the desktop app yet:
 
 ```bash
 cd ~/.hermes/hermes-agent/apps/desktop
@@ -86,9 +94,3 @@ npm run dist:linux    # produces Hermes-*.AppImage in release/
 ```
 
 The wrapper script auto-detects the latest AppImage in the release directory.
-
-## Notes
-
-- Tested on Arch Linux / CachyOS with Firejail 0.9.72+
-- Works on X11 and Wayland
-- If you use audio capture (voice conversations), remove `nodbus` and `nogroups` from the profile and add `--net=ip` for the microphone socket
