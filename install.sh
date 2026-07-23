@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install Hermes Desktop Firejail sandbox
+# Install Hermes Desktop Firejail sandbox & desktop launcher
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -8,6 +8,50 @@ NETFILTER_SRC="${SCRIPT_DIR}/hermes-desktop.net"
 WRAPPER_SRC="${SCRIPT_DIR}/run-hermes-desktop.sh"
 PROFILE_DIR="${HOME}/.config/firejail"
 BIN_DIR="${HOME}/.local/bin"
+DESKTOP_DIR="${HOME}/.local/share/applications"
+DESKTOP_FILE="${DESKTOP_DIR}/hermes-desktop-sandbox.desktop"
+
+show_help() {
+    echo "Usage: install.sh [OPTIONS]"
+    echo ""
+    echo "Install or uninstall the Hermes Desktop Firejail sandbox."
+    echo ""
+    echo "Options:"
+    echo "  --uninstall    Remove installed Firejail profiles, wrapper script, and desktop launcher"
+    echo "  -h, --help     Show this help message and exit"
+    echo ""
+    exit 0
+}
+
+do_uninstall() {
+    echo "==> Uninstalling Hermes Desktop Sandbox..."
+    rm -f "${PROFILE_DIR}/hermes-desktop.local"
+    rm -f "${PROFILE_DIR}/hermes-desktop.net"
+    rm -f "${BIN_DIR}/hermes-desktop-sandbox"
+    rm -f "${DESKTOP_FILE}"
+    echo "  ✓ Removed ${PROFILE_DIR}/hermes-desktop.local"
+    echo "  ✓ Removed ${PROFILE_DIR}/hermes-desktop.net"
+    echo "  ✓ Removed ${BIN_DIR}/hermes-desktop-sandbox"
+    echo "  ✓ Removed ${DESKTOP_FILE}"
+    echo "==> Uninstall complete!"
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --uninstall)
+            do_uninstall
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Run 'install.sh --help' for usage."
+            exit 1
+            ;;
+    esac
+done
 
 echo "==> Checking Firejail..."
 if ! command -v firejail &>/dev/null; then
@@ -36,6 +80,22 @@ cp "${WRAPPER_SRC}" "${BIN_DIR}/hermes-desktop-sandbox"
 chmod +x "${BIN_DIR}/hermes-desktop-sandbox"
 echo "  → ${BIN_DIR}/hermes-desktop-sandbox"
 
+echo "==> Installing Desktop Menu entry..."
+mkdir -p "${DESKTOP_DIR}"
+cat <<EOF > "${DESKTOP_FILE}"
+[Desktop Entry]
+Name=Hermes Desktop (Sandboxed)
+Comment=Sandboxed Electron desktop app for Hermes AI Agent
+Exec=${BIN_DIR}/hermes-desktop-sandbox %U
+Icon=hermes
+Terminal=false
+Type=Application
+Categories=Utility;Development;
+StartupWMClass=hermes-desktop
+EOF
+chmod +x "${DESKTOP_FILE}"
+echo "  → ${DESKTOP_FILE}"
+
 # Check if BIN_DIR is in PATH
 if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
     echo ""
@@ -47,17 +107,20 @@ fi
 echo ""
 echo "==> Checking for Hermes desktop build..."
 HERMES_RELEASE="${HOME}/.hermes/hermes-agent/apps/desktop/release"
-if [ -d "${HERMES_RELEASE}" ]; then
-    COUNT=$(find "${HERMES_RELEASE}" -name "Hermes-*.AppImage" 2>/dev/null | wc -l)
-    if [ "${COUNT}" -gt 0 ]; then
-        echo "  Found ${COUNT} AppImage(s) in ${HERMES_RELEASE}"
-    else
-        echo "  ⚠️  No Hermes AppImage found. Build it first:"
-        echo "     cd ~/.hermes/hermes-agent/apps/desktop && npm run dist:linux"
-    fi
+FOUND_APPIMAGE=""
+
+if [ -n "${HERMES_APPIMAGE:-}" ] && [ -f "${HERMES_APPIMAGE}" ]; then
+    FOUND_APPIMAGE="${HERMES_APPIMAGE}"
+elif [ -d "${HERMES_RELEASE}" ]; then
+    FOUND_APPIMAGE=$(find "${HERMES_RELEASE}" -maxdepth 2 -name "Hermes-*.AppImage" 2>/dev/null | sort -V | tail -1)
+fi
+
+if [ -n "${FOUND_APPIMAGE}" ]; then
+    echo "  ✓ Found AppImage: ${FOUND_APPIMAGE}"
 else
-    echo "  ⚠️  Release directory not found. Build the desktop first:"
+    echo "  ⚠️  No Hermes AppImage found yet. Build it when ready:"
     echo "     cd ~/.hermes/hermes-agent/apps/desktop && npm run dist:linux"
+    echo "     Or set HERMES_APPIMAGE=/path/to/Hermes-*.AppImage"
 fi
 
 echo ""
@@ -65,5 +128,6 @@ echo "==> Done!"
 echo "Before first run, edit your network rules:"
 echo "  vim ${PROFILE_DIR}/hermes-desktop.net"
 echo ""
-echo "Then run:  hermes-desktop-sandbox"
+echo "Then launch via application menu or run:  hermes-desktop-sandbox"
 echo ""
+

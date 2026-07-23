@@ -6,6 +6,9 @@ caps.drop all
 
 # --- Network ---
 # Restrict to specific IPs via custom netfilter rules
+# NOTE: Firejail requires creating a network namespace for netfilter rules to apply.
+# If netfilter is ignored, uncomment 'net default' or pass '--net=default' to firejail.
+# net default
 netfilter ${HOME}/.config/firejail/hermes-desktop.net
 protocol unix,inet,inet6
 
@@ -18,6 +21,14 @@ read-only ${HOME}
 read-write ${HOME}/.hermes
 read-write ${HOME}/.local/share/hermes
 
+# Electron app data & user config
+read-write ${HOME}/.config/Hermes
+read-write ${HOME}/.config/hermes-desktop
+read-write ${HOME}/.config/Hermes Desktop
+read-write ${HOME}/.config/hermes
+read-write ${HOME}/.cache/Hermes
+read-write ${HOME}/.cache/hermes
+
 # XDG font cache (Electron needs this sometimes)
 read-write ${HOME}/.config/fontconfig
 read-write ${HOME}/.cache/fontconfig
@@ -26,7 +37,6 @@ read-write ${HOME}/.cache/fontconfig
 read-write ${HOME}/.config/pulse
 read-write ${HOME}/.config/pipewire
 read-write ${HOME}/.config/alsa
-read-write ${HOME}/.config/pipwire
 read-only ${XDG_RUNTIME_DIR}/pulse
 read-only ${XDG_RUNTIME_DIR}/pipewire-0
 
@@ -34,20 +44,38 @@ read-only ${XDG_RUNTIME_DIR}/pipewire-0
 blacklist ${HOME}/.ssh
 blacklist ${HOME}/.gnupg
 blacklist ${HOME}/.password-store
+blacklist ${HOME}/.config/1Password
 blacklist ${HOME}/.config/Bitwarden
+blacklist ${HOME}/.config/KeePassXC
 blacklist ${HOME}/.config/chromium
 blacklist ${HOME}/.config/google-chrome
 blacklist ${HOME}/.config/BraveSoftware
 blacklist ${HOME}/.config/microsoft-edge
+blacklist ${HOME}/.config/mozilla
+blacklist ${HOME}/.mozilla
+blacklist ${HOME}/.config/opera
+blacklist ${HOME}/.config/Vivaldi
 blacklist ${HOME}/.bash_history
 blacklist ${HOME}/.zsh_history
+blacklist ${HOME}/.fish_history
 blacklist ${HOME}/.python_history
 blacklist ${HOME}/.lesshst
 blacklist ${HOME}/.mysql_history
 blacklist ${HOME}/.psql_history
 blacklist ${HOME}/.config/gh
+blacklist ${HOME}/.aws
+blacklist ${HOME}/.azure
+blacklist ${HOME}/.kube
+blacklist ${HOME}/.config/gcloud
+blacklist ${HOME}/.vault-token
+blacklist ${HOME}/.boto
+blacklist ${HOME}/.netrc
+blacklist ${HOME}/.docker
 blacklist ${HOME}/.docker/config.json
 blacklist ${HOME}/.git-credentials*
+blacklist ${HOME}/.npmrc
+blacklist ${HOME}/.pypirc
+blacklist ${HOME}/.cargo/credentials*
 
 # --- Devices ---
 nodvd
@@ -82,3 +110,4 @@ env XAUTHORITY=${XAUTHORITY}
 env XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
 env PULSE_SERVER=${PULSE_SERVER}
 env PULSE_RUNTIME_PATH=${PULSE_RUNTIME_PATH}
+

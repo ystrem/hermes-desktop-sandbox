@@ -3,7 +3,7 @@
 -A OUTPUT -o lo -j ACCEPT
 
 # Allow DNS (required for local gateway resolution AND API provider lookups)
-# If you know the API provider IPs, you can replace this with explicit allows
+# Note: Firejail resolves hostnames to IPs when the sandbox initializes.
 -A OUTPUT -p udp --dport 53 -j ACCEPT
 -A OUTPUT -p tcp --dport 53 -j ACCEPT
 
@@ -33,6 +33,8 @@
 # -A OUTPUT -d openrouter.ai -j ACCEPT
 # -A OUTPUT -d api.groq.com -j ACCEPT
 # -A OUTPUT -d api.together.xyz -j ACCEPT
+# -A OUTPUT -d api.deepseek.com -j ACCEPT
+# -A OUTPUT -d api.mistral.ai -j ACCEPT
 # -A OUTPUT -d us.ya.ru -j ACCEPT   # Yandex
 # -A OUTPUT -d dashscope.aliyuncs.com -j ACCEPT  # Alibaba/Qwen
 # -A OUTPUT -d api.minimaxi.com -j ACCEPT
@@ -40,3 +42,4 @@
 # Drop everything else
 -A OUTPUT -j REJECT
 -A INPUT -j DROP
+

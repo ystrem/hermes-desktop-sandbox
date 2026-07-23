@@ -13,20 +13,20 @@ The Hermes desktop app is an **Electron shell** (Chromium + Node.js) with access
 
 Sandboxing with Firejail restricts:
 
-- **Filesystem** — only `~/.hermes/` writable, everything else blocked
-- **Network** — only localhost + one whitelisted local IP
+- **Filesystem** — only `~/.hermes/` and Electron app config writable, everything else blocked
+- **Network** — only localhost + whitelisted local/remote IPs
 - **Capabilities** — none
 - **Temp** — isolated `/tmp`
-- **Sensitive data** — SSH keys, GPG, vaults, shell histories hidden
+- **Sensitive data** — SSH keys, GPG, cloud credentials (AWS/GCP/Azure/Kube), password vaults, browser histories hidden
 
 ## What's in here
 
 | File | Purpose |
 |------|---------|
 | `hermes-desktop.local` | Firejail profile — sandbox rules |
-| `hermes-desktop.net` | Netfilter rules — restrict to specific IPs |
+| `hermes-desktop.net` | Netfilter rules — restrict to specific IPs/domains |
 | `run-hermes-desktop.sh` | Wrapper script to launch the sandboxed desktop |
-| `install.sh` | One-shot setup (copies profiles, creates launcher) |
+| `install.sh` | Setup script (copies profiles, wrapper script, and `.desktop` launcher) |
 
 ## Quick start
 
@@ -43,9 +43,16 @@ bash install.sh
 vim ~/.config/firejail/hermes-desktop.net
 # → uncomment the line with your local IP (ai-worker, aicore, etc.)
 
-# Launch sandboxed Hermes desktop
+# Launch sandboxed Hermes desktop from application menu or terminal:
 hermes-desktop-sandbox
 ```
+
+## Features
+
+- **Desktop Menu Entry**: Automatically creates `~/.local/share/applications/hermes-desktop-sandbox.desktop` so you can launch Hermes directly from GNOME, KDE, Rofi, etc.
+- **CLI Argument Forwarding**: Pass flags directly to the AppImage (e.g. `hermes-desktop-sandbox --devtools`).
+- **Custom AppImage Location**: Specify a custom AppImage path via `HERMES_APPIMAGE=/path/to/Hermes-*.AppImage`.
+- **Easy Uninstall**: Run `bash install.sh --uninstall` to remove all installed profiles and launchers cleanly.
 
 ## Network isolation
 
@@ -53,14 +60,15 @@ By default, Hermes can **only** talk to:
 
 - `localhost` (127.0.0.1) — the local Hermes gateway
 - DNS (for name resolution)
-- **One local IP** you whitelist in `hermes-desktop.net`
+- **Whitelisted IPs/hosts** specified in `hermes-desktop.net`
 
-To whitelist your IP, edit `~/.config/firejail/hermes-desktop.net` and uncomment:
+To whitelist your local worker or API endpoints, edit `~/.config/firejail/hermes-desktop.net` and uncomment/add rules:
 ```
 -A OUTPUT -d 192.168.10.194/32 -j ACCEPT
+-A OUTPUT -d api.deepseek.com -j ACCEPT
 ```
 
-Everything else is dropped by `iptables`. If Hermes needs to reach external API providers directly (not proxied through local gateway), uncomment the relevant lines for `api.openai.com`, `api.anthropic.com`, etc.
+*Note:* For Firejail netfilter rules to take effect, Firejail requires an active network namespace. You can pass `--net=default` or uncomment `net default` in `hermes-desktop.local`.
 
 ## Microphone (dictation)
 
@@ -78,11 +86,13 @@ No extra configuration needed. If audio stops working, check that `nogroups` is 
 |------|-------------|
 | SSH keys | Blocked (`~/.ssh`) |
 | GPG keys | Blocked (`~/.gnupg`) |
-| Password stores | Blocked (`~/.password-store`, `~/.config/Bitwarden`) |
-| Browser data | Blocked (Chromium, Chrome, Brave, Edge) |
-| Shell config | Blocked (`~/.bash_history`, `~/.zsh_history`) |
+| Cloud credentials | Blocked (`~/.aws`, `~/.azure`, `~/.kube`, `~/.config/gcloud`) |
+| Password stores | Blocked (`~/.password-store`, `~/.config/Bitwarden`, `~/.config/1Password`, `~/.config/KeePassXC`) |
+| Browser data | Blocked (Chromium, Chrome, Brave, Edge, Firefox, Opera, Vivaldi) |
+| Developer tokens | Blocked (`~/.npmrc`, `~/.pypirc`, `~/.cargo/credentials*`, `~/.config/gh`) |
+| Shell config & history | Blocked (`~/.bash_history`, `~/.zsh_history`, `~/.fish_history`, `~/.python_history`) |
 | /tmp | Private (binds to new empty tmpfs) |
-| Network | Only 127.0.0.1 + whitelisted IP |
+| Network | Only 127.0.0.1 + whitelisted IPs |
 | Kernel | No new privileges, seccomp |
 | Capabilities | All dropped |
 
@@ -93,4 +103,5 @@ cd ~/.hermes/hermes-agent/apps/desktop
 npm run dist:linux    # produces Hermes-*.AppImage in release/
 ```
 
-The wrapper script auto-detects the latest AppImage in the release directory.
+The wrapper script auto-detects the latest AppImage in release directories or honors `HERMES_APPIMAGE`.
+
