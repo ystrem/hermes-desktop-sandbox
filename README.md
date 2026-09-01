@@ -25,8 +25,9 @@ Sandboxing with Firejail restricts:
 |------|---------|
 | `hermes-desktop.local` | Firejail profile — sandbox rules |
 | `hermes-desktop.net` | Netfilter rules — restrict to specific IPs/domains |
-| `run-hermes-desktop.sh` | Wrapper script to launch the sandboxed desktop |
-| `install.sh` | Setup script (copies profiles, wrapper script, and `.desktop` launcher) |
+| `run-hermes-desktop.sh` | Wrapper script to launch the sandboxed desktop & check for updates |
+| `install.sh` | Setup script (copies profiles, launcher, desktop entry, auto-downloads release) |
+| `.github/workflows/build-desktop.yml` | Automated GitHub Actions workflow building AppImages on upstream updates |
 
 ## Quick start
 
@@ -49,10 +50,12 @@ hermes-desktop-sandbox
 
 ## Features
 
-- **Desktop Menu Entry**: Automatically creates `~/.local/share/applications/hermes-desktop-sandbox.desktop` so you can launch Hermes directly from GNOME, KDE, Rofi, etc.
+- **Automated CI/CD Builds**: GitHub Actions automatically monitors upstream `NousResearch/hermes-agent` for new releases every 6 hours, compiles the Linux AppImage on GitHub runners, and publishes GitHub Releases.
+- **One-Click Auto-Updates**: Run `hermes-desktop-sandbox --update` to fetch and update to the latest pre-built AppImage automatically without local compilation.
+- **Desktop Menu Entry**: Automatically creates `~/.local/share/applications/hermes-desktop-sandbox.desktop` for GNOME, KDE, Rofi, etc.
 - **CLI Argument Forwarding**: Pass flags directly to the AppImage (e.g. `hermes-desktop-sandbox --devtools`).
-- **Custom AppImage Location**: Specify a custom AppImage path via `HERMES_APPIMAGE=/path/to/Hermes-*.AppImage`.
-- **Easy Uninstall**: Run `bash install.sh --uninstall` to remove all installed profiles and launchers cleanly.
+- **Flexible Binary Discovery**: Auto-detects downloaded releases, `.AppImage` packages, unpacked executables (`linux-unpacked/hermes-desktop`), or honors `HERMES_APPIMAGE`.
+- **Easy Uninstall**: Run `bash install.sh --uninstall` to remove installed profiles and launchers.
 
 ## Network isolation
 
@@ -96,12 +99,15 @@ No extra configuration needed. If audio stops working, check that `nogroups` is 
 | Kernel | No new privileges, seccomp |
 | Capabilities | All dropped |
 
-## Building the desktop AppImage
+## Building locally (Optional)
+
+If you prefer building locally instead of downloading pre-built releases:
 
 ```bash
 cd ~/.hermes/hermes-agent/apps/desktop
-npm run dist:linux    # produces Hermes-*.AppImage in release/
+npm run pack    # produces Hermes-*.AppImage and linux-unpacked/ in release/
 ```
 
-The wrapper script auto-detects the latest AppImage in release directories or honors `HERMES_APPIMAGE`.
+The launcher script auto-detects local AppImages or unpacked binaries.
+
 

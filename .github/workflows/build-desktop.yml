@@ -1,0 +1,110 @@
+name: Build & Release Hermes Desktop AppImage
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Check every 6 hours
+  workflow_dispatch:        # Allow manual triggers
+    inputs:
+      force_build:
+        description: 'Force build even if no new upstream release/commit is detected'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sandbox repository
+        uses: actions/checkout@v4
+
+      - name: Check upstream NousResearch/hermes-agent commit & releases
+        id: check_upstream
+        run: |
+          UPSTREAM_REPO="NousResearch/hermes-agent"
+          SANDBOX_REPO="${{ github.repository }}"
+
+          echo "Checking latest commit from https://github.com/${UPSTREAM_REPO}..."
+          UPSTREAM_SHA=$(curl -sSH "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${UPSTREAM_REPO}/commits/main" | jq -r '.sha')
+
+          if [ -z "${UPSTREAM_SHA}" ] || [ "${UPSTREAM_SHA}" = "null" ]; then
+            echo "Error fetching upstream commit SHA."
+            exit 1
+          fi
+
+          SHORT_SHA="${UPSTREAM_SHA:0:7}"
+          echo "Upstream latest main commit SHA: ${SHORT_SHA}"
+
+          echo "Checking latest release in ${SANDBOX_REPO}..."
+          LATEST_TAG=$(curl -sSH "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${SANDBOX_REPO}/releases/latest" | jq -r '.tag_name' || echo "")
+
+          echo "Current latest release tag in sandbox: ${LATEST_TAG:-none}"
+
+          FORCE_BUILD="${{ github.event.inputs.force_build }}"
+          if [ "${FORCE_BUILD}" = "true" ] || [ "${LATEST_TAG}" != "v-${SHORT_SHA}" ]; then
+            echo "New upstream release/commit detected or forced build requested!"
+            echo "BUILD_NEEDED=true" >> $GITHUB_OUTPUT
+            echo "NEW_TAG=v-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "COMMIT_SHA=${UPSTREAM_SHA}" >> $GITHUB_OUTPUT
+          else
+            echo "No new upstream commits. Release ${LATEST_TAG} is up to date."
+            echo "BUILD_NEEDED=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Clone upstream Hermes Agent
+        if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
+        run: |
+          git clone https://github.com/NousResearch/hermes-agent.git hermes-agent-repo
+          cd hermes-agent-repo
+          git checkout ${{ steps.check_upstream.outputs.COMMIT_SHA }}
+
+      - name: Setup Node.js
+        if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies & pack desktop app
+        if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
+        run: |
+          cd hermes-agent-repo
+          npm ci
+          cd apps/desktop
+          CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack
+
+      - name: Locate built AppImage
+        if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
+        id: locate_appimage
+        run: |
+          cd hermes-agent-repo/apps/desktop/release
+          APPIMAGE_PATH=$(find . -name "Hermes-*.AppImage" -type f | head -n 1)
+          if [ -z "${APPIMAGE_PATH}" ]; then
+            echo "Error: AppImage not found in release directory!"
+            ls -la .
+            exit 1
+          fi
+          FULL_PATH="$(pwd)/${APPIMAGE_PATH#./}"
+          echo "Found AppImage at: ${FULL_PATH}"
+          echo "APPIMAGE_PATH=${FULL_PATH}" >> $GITHUB_OUTPUT
+          echo "APPIMAGE_NAME=$(basename "${FULL_PATH}")" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release & Upload AppImage
+        if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.check_upstream.outputs.NEW_TAG }}
+          name: "Hermes Desktop (${{ steps.check_upstream.outputs.NEW_TAG }})"
+          body: |
+            Automated build of Hermes Desktop from upstream [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
+            
+            - Upstream Commit: `${{ steps.check_upstream.outputs.COMMIT_SHA }}`
+            - Built at: $(date -u)
+          files: ${{ steps.locate_appimage.outputs.APPIMAGE_PATH }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
