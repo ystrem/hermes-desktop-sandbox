@@ -22,8 +22,9 @@
 -A OUTPUT -d ::1/128 -j ACCEPT
 
 # Allow specific local IP (e.g., ai-worker with LLM APIs, or aicore)
-# Uncomment and set your IP below:
-# -A OUTPUT -d 192.168.10.194/32 -j ACCEPT
+# Uncomment and set your local worker IP below:
+# -A OUTPUT -d 192.168.1.100/32 -j ACCEPT
+
 
 # === API providers (for LLM API calls) ===
 # If Hermes talks to external API providers directly (not proxied through local gateway),

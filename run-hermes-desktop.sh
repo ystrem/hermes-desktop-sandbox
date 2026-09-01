@@ -4,10 +4,18 @@
 
 set -euo pipefail
 
-PROFILE_DIR="${HOME}/.config/firejail"
+PROFILE_DIR="${HERMES_PROFILE_DIR:-${HOME}/.config/firejail}"
 PROFILE="${PROFILE_DIR}/hermes-desktop.local"
-RELEASE_REPO="ystrem/hermes-desktop-sandbox"
-DOWNLOAD_DIR="${HOME}/.local/bin"
+DOWNLOAD_DIR="${HERMES_BIN_DIR:-${HOME}/.local/bin}"
+
+# Auto-detect GitHub release repository from environment or git remote URL
+if [ -n "${HERMES_SANDBOX_REPO:-}" ]; then
+    RELEASE_REPO="${HERMES_SANDBOX_REPO}"
+else
+    DETECTED_REPO=$(git config --get remote.origin.url 2>/dev/null | sed -E 's/.*[:\/]([^\/]+\/[^\/.]+)(\.git)?$/\1/' || echo "")
+    RELEASE_REPO="${DETECTED_REPO:-ystrem/hermes-desktop-sandbox}"
+fi
+
 
 show_help() {
     echo "Usage: hermes-desktop-sandbox [OPTIONS] [ELECTRON_ARGS...]"

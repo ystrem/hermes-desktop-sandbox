@@ -6,10 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROFILE_SRC="${SCRIPT_DIR}/hermes-desktop.local"
 NETFILTER_SRC="${SCRIPT_DIR}/hermes-desktop.net"
 WRAPPER_SRC="${SCRIPT_DIR}/run-hermes-desktop.sh"
-PROFILE_DIR="${HOME}/.config/firejail"
-BIN_DIR="${HOME}/.local/bin"
-DESKTOP_DIR="${HOME}/.local/share/applications"
+PROFILE_DIR="${HERMES_PROFILE_DIR:-${HOME}/.config/firejail}"
+BIN_DIR="${HERMES_BIN_DIR:-${HOME}/.local/bin}"
+DESKTOP_DIR="${HERMES_DESKTOP_DIR:-${HOME}/.local/share/applications}"
 DESKTOP_FILE="${DESKTOP_DIR}/hermes-desktop-sandbox.desktop"
+
 
 show_help() {
     echo "Usage: install.sh [OPTIONS]"

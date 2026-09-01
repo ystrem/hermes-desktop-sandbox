@@ -67,11 +67,24 @@ By default, Hermes can **only** talk to:
 
 To whitelist your local worker or API endpoints, edit `~/.config/firejail/hermes-desktop.net` and uncomment/add rules:
 ```
--A OUTPUT -d 192.168.10.194/32 -j ACCEPT
+-A OUTPUT -d 192.168.1.100/32 -j ACCEPT
 -A OUTPUT -d api.deepseek.com -j ACCEPT
 ```
 
 *Note:* For Firejail netfilter rules to take effect, Firejail requires an active network namespace. You can pass `--net=default` or uncomment `net default` in `hermes-desktop.local`.
+
+## Environment Variables & Configuration
+
+All paths and repository parameters are fully configurable via environment variables:
+
+| Variable | Purpose | Default Value |
+|----------|---------|---------------|
+| `HERMES_SANDBOX_REPO` | GitHub repository (`owner/repo`) for releases | Auto-detected from `git remote` (or default fallback) |
+| `HERMES_APPIMAGE` | Path to explicit AppImage or executable | Auto-detected in bin/release directories |
+| `HERMES_PROFILE_DIR` | Firejail profiles directory | `${HOME}/.config/firejail` |
+| `HERMES_BIN_DIR` | Executable launcher bin directory | `${HOME}/.local/bin` |
+| `HERMES_DESKTOP_DIR` | XDG desktop entries directory | `${HOME}/.local/share/applications` |
+
 
 ## Microphone (dictation)
 
