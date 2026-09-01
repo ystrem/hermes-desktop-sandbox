@@ -1,6 +1,8 @@
 name: Build & Release Hermes Desktop AppImage
 
 on:
+  push:
+    branches: [ main ]
   schedule:
     - cron: '0 */6 * * *'  # Check every 6 hours
   workflow_dispatch:        # Allow manual triggers
@@ -40,7 +42,11 @@ jobs:
 
           echo "Checking latest release in ${SANDBOX_REPO}..."
           LATEST_TAG=$(curl -sSH "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${SANDBOX_REPO}/releases/latest" | jq -r '.tag_name' || echo "")
+            "https://api.github.com/repos/${SANDBOX_REPO}/releases/latest" | jq -r '.tag_name' 2>/dev/null || echo "")
+
+          if [ "${LATEST_TAG}" = "null" ]; then
+            LATEST_TAG=""
+          fi
 
           echo "Current latest release tag in sandbox: ${LATEST_TAG:-none}"
 
@@ -72,25 +78,27 @@ jobs:
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
         run: |
           cd hermes-agent-repo
-          npm ci
-          cd apps/desktop
-          CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack
+          npm ci || npm install
+          if [ -d "apps/desktop" ]; then
+            cd apps/desktop
+            npm ci || npm install
+            CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack || CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --linux AppImage
+          fi
 
       - name: Locate built AppImage
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
         id: locate_appimage
         run: |
-          cd hermes-agent-repo/apps/desktop/release
-          APPIMAGE_PATH=$(find . -name "Hermes-*.AppImage" -type f | head -n 1)
+          cd hermes-agent-repo/apps/desktop
+          APPIMAGE_PATH=$(find . -name "*.AppImage" -type f | head -n 1)
           if [ -z "${APPIMAGE_PATH}" ]; then
-            echo "Error: AppImage not found in release directory!"
-            ls -la .
+            echo "Error: AppImage not found in desktop directory!"
+            find . -maxdepth 3
             exit 1
           fi
           FULL_PATH="$(pwd)/${APPIMAGE_PATH#./}"
           echo "Found AppImage at: ${FULL_PATH}"
           echo "APPIMAGE_PATH=${FULL_PATH}" >> $GITHUB_OUTPUT
-          echo "APPIMAGE_NAME=$(basename "${FULL_PATH}")" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release & Upload AppImage
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
@@ -108,3 +116,4 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
