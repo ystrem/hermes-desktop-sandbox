@@ -74,7 +74,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install dependencies & pack desktop app
+      - name: Install dependencies & build AppImage
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
         run: |
           cd hermes-agent-repo
@@ -82,18 +82,19 @@ jobs:
           if [ -d "apps/desktop" ]; then
             cd apps/desktop
             npm ci || npm install
-            CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack || CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --linux AppImage
+            npm run build 2>/dev/null || true
+            CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --linux AppImage || CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack -- --linux AppImage || npm run dist:linux
           fi
+
 
       - name: Locate built AppImage
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
         id: locate_appimage
         run: |
-          cd hermes-agent-repo/apps/desktop
-          APPIMAGE_PATH=$(find . -name "*.AppImage" -type f | head -n 1)
+          APPIMAGE_PATH=$(find hermes-agent-repo -name "*.AppImage" -type f | head -n 1)
           if [ -z "${APPIMAGE_PATH}" ]; then
-            echo "Error: AppImage not found in desktop directory!"
-            find . -maxdepth 3
+            echo "Error: AppImage not found! Listing files in hermes-agent-repo:"
+            find hermes-agent-repo -maxdepth 4
             exit 1
           fi
           FULL_PATH="$(pwd)/${APPIMAGE_PATH#./}"
@@ -116,4 +117,5 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
