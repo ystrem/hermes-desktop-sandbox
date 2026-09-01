@@ -29,8 +29,12 @@ jobs:
           SANDBOX_REPO="${{ github.repository }}"
 
           echo "Checking latest commit from https://github.com/${UPSTREAM_REPO}..."
-          UPSTREAM_SHA=$(curl -sSH "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${UPSTREAM_REPO}/commits/main" | jq -r '.sha')
+          COMMIT_JSON=$(curl -sSH "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${UPSTREAM_REPO}/commits/main")
+          
+          UPSTREAM_SHA=$(echo "${COMMIT_JSON}" | jq -r '.sha')
+          COMMIT_MSG=$(echo "${COMMIT_JSON}" | jq -r '.commit.message')
+          COMMIT_AUTHOR=$(echo "${COMMIT_JSON}" | jq -r '.commit.author.name')
 
           if [ -z "${UPSTREAM_SHA}" ] || [ "${UPSTREAM_SHA}" = "null" ]; then
             echo "Error fetching upstream commit SHA."
@@ -56,6 +60,10 @@ jobs:
             echo "BUILD_NEEDED=true" >> $GITHUB_OUTPUT
             echo "NEW_TAG=v-${SHORT_SHA}" >> $GITHUB_OUTPUT
             echo "COMMIT_SHA=${UPSTREAM_SHA}" >> $GITHUB_OUTPUT
+            echo "COMMIT_AUTHOR=${COMMIT_AUTHOR}" >> $GITHUB_OUTPUT
+            echo "COMMIT_MSG<<EOF" >> $GITHUB_OUTPUT
+            echo "${COMMIT_MSG}" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           else
             echo "No new upstream commits. Release ${LATEST_TAG} is up to date."
             echo "BUILD_NEEDED=false" >> $GITHUB_OUTPUT
@@ -85,7 +93,6 @@ jobs:
             npm run build 2>/dev/null || true
             CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --linux AppImage || CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack -- --linux AppImage || npm run dist:linux
           fi
-
 
       - name: Locate built AppImage & compute checksum
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
@@ -129,9 +136,15 @@ jobs:
 
             Automated build of Hermes Desktop from upstream [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
 
-            - **Hermes Version**: `${{ steps.locate_appimage.outputs.HERMES_VERSION }}`
-            - **Upstream Commit**: [`${{ steps.check_upstream.outputs.COMMIT_SHA }}`](https://github.com/NousResearch/hermes-agent/commit/${{ steps.check_upstream.outputs.COMMIT_SHA }})
+            #### 📝 Upstream Commit & Changes
+            - **Commit**: [`${{ steps.check_upstream.outputs.COMMIT_SHA }}`](https://github.com/NousResearch/hermes-agent/commit/${{ steps.check_upstream.outputs.COMMIT_SHA }})
+            - **Author**: `${{ steps.check_upstream.outputs.COMMIT_AUTHOR }}`
             - **Built at**: `${{ steps.locate_appimage.outputs.BUILD_DATE }}`
+
+            ##### 💬 Commit Message & What's New:
+            ```text
+            ${{ steps.check_upstream.outputs.COMMIT_MSG }}
+            ```
 
             #### 🔒 SHA256 Checksum
             ```text
@@ -142,6 +155,7 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
 
