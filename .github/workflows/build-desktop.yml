@@ -87,7 +87,7 @@ jobs:
           fi
 
 
-      - name: Locate built AppImage
+      - name: Locate built AppImage & compute checksum
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
         id: locate_appimage
         run: |
@@ -98,24 +98,50 @@ jobs:
             exit 1
           fi
           FULL_PATH="$(pwd)/${APPIMAGE_PATH#./}"
+          FILE_NAME=$(basename "${FULL_PATH}")
+          SHA256_HASH=$(sha256sum "${FULL_PATH}" | awk '{print $1}')
+          
+          HERMES_VERSION="v0.17.0"
+          if [ -f "hermes-agent-repo/apps/desktop/package.json" ]; then
+            PARSED_VER=$(jq -r '.version' hermes-agent-repo/apps/desktop/package.json 2>/dev/null || echo "")
+            if [ -n "${PARSED_VER}" ] && [ "${PARSED_VER}" != "null" ]; then
+              HERMES_VERSION="v${PARSED_VER}"
+            fi
+          fi
+
+          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
           echo "Found AppImage at: ${FULL_PATH}"
           echo "APPIMAGE_PATH=${FULL_PATH}" >> $GITHUB_OUTPUT
+          echo "APPIMAGE_NAME=${FILE_NAME}" >> $GITHUB_OUTPUT
+          echo "SHA256_HASH=${SHA256_HASH}" >> $GITHUB_OUTPUT
+          echo "HERMES_VERSION=${HERMES_VERSION}" >> $GITHUB_OUTPUT
+          echo "BUILD_DATE=${BUILD_DATE}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release & Upload AppImage
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.check_upstream.outputs.NEW_TAG }}
-          name: "Hermes Desktop (${{ steps.check_upstream.outputs.NEW_TAG }})"
+          name: "Hermes Desktop ${{ steps.locate_appimage.outputs.HERMES_VERSION }} (${{ steps.check_upstream.outputs.NEW_TAG }})"
           body: |
+            ### ⚕️ Hermes Desktop Release (${{ steps.locate_appimage.outputs.HERMES_VERSION }})
+
             Automated build of Hermes Desktop from upstream [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
-            
-            - Upstream Commit: `${{ steps.check_upstream.outputs.COMMIT_SHA }}`
-            - Built at: $(date -u)
+
+            - **Hermes Version**: `${{ steps.locate_appimage.outputs.HERMES_VERSION }}`
+            - **Upstream Commit**: [`${{ steps.check_upstream.outputs.COMMIT_SHA }}`](https://github.com/NousResearch/hermes-agent/commit/${{ steps.check_upstream.outputs.COMMIT_SHA }})
+            - **Built at**: `${{ steps.locate_appimage.outputs.BUILD_DATE }}`
+
+            #### 🔒 SHA256 Checksum
+            ```text
+            sha256:${{ steps.locate_appimage.outputs.SHA256_HASH }}  ${{ steps.locate_appimage.outputs.APPIMAGE_NAME }}
+            ```
           files: ${{ steps.locate_appimage.outputs.APPIMAGE_PATH }}
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
