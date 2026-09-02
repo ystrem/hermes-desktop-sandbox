@@ -42,7 +42,7 @@ bash install.sh
 
 # EDIT the netfilter rules before first run:
 vim ~/.config/firejail/hermes-desktop.net
-# → uncomment the line with your local IP (ai-worker, aicore, etc.)
+# → uncomment the line with your local server IP
 
 # Launch sandboxed Hermes desktop from application menu or terminal:
 hermes-desktop-sandbox
@@ -65,7 +65,8 @@ By default, Hermes can **only** talk to:
 - DNS (for name resolution)
 - **Whitelisted IPs/hosts** specified in `hermes-desktop.net`
 
-To whitelist your local worker or API endpoints, edit `~/.config/firejail/hermes-desktop.net` and uncomment/add rules:
+To whitelist your local server or API endpoints, edit `~/.config/firejail/hermes-desktop.net` and uncomment/add rules:
+
 ```
 -A OUTPUT -d 192.168.1.100/32 -j ACCEPT
 -A OUTPUT -d api.deepseek.com -j ACCEPT

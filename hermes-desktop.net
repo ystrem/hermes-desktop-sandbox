@@ -21,8 +21,9 @@
 -A OUTPUT -d 127.0.0.1/32 -j ACCEPT
 -A OUTPUT -d ::1/128 -j ACCEPT
 
-# Allow specific local IP (e.g., ai-worker with LLM APIs, or aicore)
-# Uncomment and set your local worker IP below:
+# Allow specific local network IP (e.g., local LLM inference server or API gateway)
+# Uncomment and set your local server IP below:
+
 # -A OUTPUT -d 192.168.1.100/32 -j ACCEPT
 
 

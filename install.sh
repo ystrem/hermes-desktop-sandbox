@@ -72,7 +72,8 @@ echo "  → ${PROFILE_DIR}/hermes-desktop.net"
 echo ""
 echo "==> ⚠️  Edit netfilter rules before first run!"
 echo "    Set your allowed local IP in: ${PROFILE_DIR}/hermes-desktop.net"
-echo "    Uncomment the line with your AI worker / aicore IP"
+echo "    Uncomment the line with your local server IP"
+
 echo ""
 
 echo "==> Installing wrapper script..."
