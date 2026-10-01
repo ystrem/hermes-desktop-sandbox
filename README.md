@@ -29,24 +29,20 @@ Sandboxing with Firejail restricts:
 | `install.sh` | Setup script (copies profiles, launcher, desktop entry, auto-downloads release) |
 | `.github/workflows/build-desktop.yml` | Automated GitHub Actions workflow building AppImages on upstream updates |
 
-## Quick start
+## Quick start (Portable / 100% Self-Contained)
 
 ```bash
 # Install Firejail (Arch/CachyOS)
 sudo pacman -S firejail
 
-# Clone and install
+# Clone and run directly from the repo folder (no installation required!)
 git clone https://github.com/ystrem/hermes-desktop-sandbox
 cd hermes-desktop-sandbox
-bash install.sh
 
-# EDIT the netfilter rules before first run:
-vim ~/.config/firejail/hermes-desktop.net
-# → uncomment the line with your local server IP
-
-# Launch sandboxed Hermes desktop from application menu or terminal:
-hermes-desktop-sandbox
+# Run directly inside the repo:
+./run-hermes-desktop.sh
 ```
+
 
 ## Features
 

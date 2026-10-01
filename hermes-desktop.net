@@ -1,47 +1,27 @@
-# Hermes Desktop netfilter — restrict outbound to specific hosts
-# Allow loopback
+# Allow loopback (both outbound and inbound)
 -A OUTPUT -o lo -j ACCEPT
+-A INPUT -i lo -j ACCEPT
 
-# Allow DNS (required for local gateway resolution AND API provider lookups)
-# Note: Firejail resolves hostnames to IPs when the sandbox initializes.
--A OUTPUT -p udp --dport 53 -j ACCEPT
--A OUTPUT -p tcp --dport 53 -j ACCEPT
-
-# Allow DHCP
--A OUTPUT -p udp --dport 67:68 -j ACCEPT
-
-# Allow ICMP (ping, path MTU)
--A OUTPUT -p icmp -j ACCEPT
-
-# Allow established/related connections (responses to our outbound)
+# Allow established/related connections (responses to our outbound connections)
+-A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
 
 # === Local network ===
 # Gateway — communicates with Hermes gateway on the same machine
 -A OUTPUT -d 127.0.0.1/32 -j ACCEPT
 -A OUTPUT -d ::1/128 -j ACCEPT
 
-# Allow specific local network IP (e.g., local LLM inference server or API gateway)
-# Uncomment and set your local server IP below:
-
+# === Local network / Remote Gateway ===
+# Set your private gateway IP in hermes-desktop.net.local (gitignored)
+# Example:
 # -A OUTPUT -d 192.168.1.100/32 -j ACCEPT
-
-
-# === API providers (for LLM API calls) ===
-# If Hermes talks to external API providers directly (not proxied through local gateway),
-# uncomment the ones you use:
-# -A OUTPUT -d api.openai.com -j ACCEPT
-# -A OUTPUT -d api.anthropic.com -j ACCEPT
-# -A OUTPUT -d openrouter.ai -j ACCEPT
-# -A OUTPUT -d api.groq.com -j ACCEPT
-# -A OUTPUT -d api.together.xyz -j ACCEPT
-# -A OUTPUT -d api.deepseek.com -j ACCEPT
-# -A OUTPUT -d api.mistral.ai -j ACCEPT
-# -A OUTPUT -d us.ya.ru -j ACCEPT   # Yandex
-# -A OUTPUT -d dashscope.aliyuncs.com -j ACCEPT  # Alibaba/Qwen
-# -A OUTPUT -d api.minimaxi.com -j ACCEPT
 
 # Drop everything else
 -A OUTPUT -j REJECT
 -A INPUT -j DROP
+
+
+
+
 

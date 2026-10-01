@@ -1,4 +1,4 @@
-name: Build & Release Hermes Desktop AppImage
+name: Build & Release Hermes Desktop
 
 on:
   push:
@@ -34,35 +34,58 @@ jobs:
 
           echo "Checking latest commit from https://github.com/${UPSTREAM_REPO}..."
           COMMIT_JSON=$(curl -sSH "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${UPSTREAM_REPO}/commits/main")
           
-          UPSTREAM_SHA=$(echo "${COMMIT_JSON}" | jq -r '.sha')
-          COMMIT_MSG=$(echo "${COMMIT_JSON}" | jq -r '.commit.message')
-          COMMIT_AUTHOR=$(echo "${COMMIT_JSON}" | jq -r '.commit.author.name')
+          UPSTREAM_SHA=$(echo "${COMMIT_JSON}" | jq -r '.sha // empty')
+          COMMIT_MSG=$(echo "${COMMIT_JSON}" | jq -r '.commit.message // empty')
+          COMMIT_AUTHOR=$(echo "${COMMIT_JSON}" | jq -r '.commit.author.name // empty')
 
-          if [ -z "${UPSTREAM_SHA}" ] || [ "${UPSTREAM_SHA}" = "null" ]; then
-            echo "Error fetching upstream commit SHA."
+          if [ -z "${UPSTREAM_SHA}" ]; then
+            echo "Error fetching upstream commit SHA from GitHub API."
             exit 1
           fi
 
           SHORT_SHA="${UPSTREAM_SHA:0:7}"
           echo "Upstream latest main commit SHA: ${SHORT_SHA}"
 
+          echo "Resolving upstream release version..."
+          UPSTREAM_REL=$(curl -sSH "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${UPSTREAM_REPO}/releases/latest" 2>/dev/null || echo "")
+          UPSTREAM_TAG=$(echo "${UPSTREAM_REL}" | jq -r '.tag_name // empty' 2>/dev/null || echo "")
+          UPSTREAM_NAME=$(echo "${UPSTREAM_REL}" | jq -r '.name // empty' 2>/dev/null || echo "")
+
+          # Extract semantic version (e.g. "Hermes Agent v0.21.5 (v2026.9.24)" -> "v0.21.5")
+          HERMES_SEMVER=$(echo "${UPSTREAM_NAME}" | grep -o -E 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || echo "")
+          if [ -z "${HERMES_SEMVER}" ]; then
+            HERMES_SEMVER=$(echo "${UPSTREAM_TAG}" | grep -o -E 'v[0-9]+(\.[0-9]+)+' | head -n 1 || echo "")
+          fi
+          if [ -z "${HERMES_SEMVER}" ] || [ "${HERMES_SEMVER}" = "v0.0.0" ]; then
+            HERMES_SEMVER="v0.21.5"
+          fi
+
+          RAW_VER="${HERMES_SEMVER#v}"
+          echo "Resolved upstream version: ${HERMES_SEMVER} (tag: ${UPSTREAM_TAG})"
+          echo "HERMES_SEMVER=${HERMES_SEMVER}" >> $GITHUB_OUTPUT
+          echo "HERMES_RAW_VER=${RAW_VER}" >> $GITHUB_OUTPUT
+          echo "UPSTREAM_RELEASE_TAG=${UPSTREAM_TAG}" >> $GITHUB_OUTPUT
+
+          NEW_TAG="${HERMES_SEMVER}-${SHORT_SHA}"
+          echo "Target sandbox release tag: ${NEW_TAG}"
+
           echo "Checking latest release in ${SANDBOX_REPO}..."
           LATEST_TAG=$(curl -sSH "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${SANDBOX_REPO}/releases/latest" | jq -r '.tag_name' 2>/dev/null || echo "")
-
-          if [ "${LATEST_TAG}" = "null" ]; then
-            LATEST_TAG=""
-          fi
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${SANDBOX_REPO}/releases/latest" | jq -r '.tag_name // empty' 2>/dev/null || echo "")
 
           echo "Current latest release tag in sandbox: ${LATEST_TAG:-none}"
 
           FORCE_BUILD="${{ github.event.inputs.force_build }}"
-          if [ "${FORCE_BUILD}" = "true" ] || [ "${LATEST_TAG}" != "v-${SHORT_SHA}" ]; then
+          if [ "${FORCE_BUILD}" = "true" ] || [ "${LATEST_TAG}" != "${NEW_TAG}" ]; then
             echo "New upstream release/commit detected or forced build requested!"
             echo "BUILD_NEEDED=true" >> $GITHUB_OUTPUT
-            echo "NEW_TAG=v-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_OUTPUT
             echo "COMMIT_SHA=${UPSTREAM_SHA}" >> $GITHUB_OUTPUT
             echo "COMMIT_AUTHOR=${COMMIT_AUTHOR}" >> $GITHUB_OUTPUT
             echo "COMMIT_MSG<<EOF" >> $GITHUB_OUTPUT
@@ -86,81 +109,117 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-
-      - name: Install dependencies & build AppImage
+      - name: Install dependencies & build packages
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
         run: |
           cd hermes-agent-repo
           npm ci || npm install
           if [ -d "apps/desktop" ]; then
             cd apps/desktop
+            # Inject real version into apps/desktop/package.json so Electron/UI doesn't report 0.0.0
+            REAL_VER="${{ steps.check_upstream.outputs.HERMES_RAW_VER }}"
+            if [ -n "${REAL_VER}" ]; then
+              jq --arg v "${REAL_VER}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+            fi
             npm ci || npm install
             npm run build 2>/dev/null || true
-            CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --linux AppImage || CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack -- --linux AppImage || npm run dist:linux
+
+            # Build native AppImage
+            CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --linux AppImage -c.extraMetadata.version="${REAL_VER}" || CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:linux || CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack
+
+            # Also create tar.gz from linux-unpacked if available
+            if [ -d "release/linux-unpacked" ]; then
+              cd release/linux-unpacked
+              tar -czvf "../Hermes-${REAL_VER}-linux-x64.tar.gz" .
+              cd ../..
+            fi
           fi
 
-      - name: Locate built AppImage & compute checksum
+      - name: Locate built artifacts & compute checksums
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
-        id: locate_appimage
+        id: locate_artifacts
         run: |
-          APPIMAGE_PATH=$(find hermes-agent-repo -name "*.AppImage" -type f | head -n 1)
-          if [ -z "${APPIMAGE_PATH}" ]; then
-            echo "Error: AppImage not found! Listing files in hermes-agent-repo:"
-            find hermes-agent-repo -maxdepth 4
+          cd hermes-agent-repo
+          APPIMAGE_PATH=$(find apps/desktop/release -name "*.AppImage" -type f 2>/dev/null | head -n 1 || find . -name "*.AppImage" -type f | head -n 1)
+          TAR_PATH=$(find apps/desktop/release -name "*.tar.gz" -type f 2>/dev/null | head -n 1 || find . -name "*.tar.gz" -type f | head -n 1)
+
+          if [ -z "${APPIMAGE_PATH}" ] && [ -z "${TAR_PATH}" ]; then
+            echo "Error: Neither AppImage nor tar.gz artifact was found!"
+            find . -maxdepth 4
             exit 1
           fi
-          FULL_PATH="$(pwd)/${APPIMAGE_PATH#./}"
-          FILE_NAME=$(basename "${FULL_PATH}")
-          SHA256_HASH=$(sha256sum "${FULL_PATH}" | awk '{print $1}')
-          
-          HERMES_VERSION="v0.17.0"
-          if [ -f "hermes-agent-repo/apps/desktop/package.json" ]; then
-            PARSED_VER=$(jq -r '.version' hermes-agent-repo/apps/desktop/package.json 2>/dev/null || echo "")
-            if [ -n "${PARSED_VER}" ] && [ "${PARSED_VER}" != "null" ]; then
-              HERMES_VERSION="v${PARSED_VER}"
-            fi
+
+          UPLOAD_FILES=()
+          CHECKSUMS=""
+
+          if [ -n "${APPIMAGE_PATH}" ] && [ -f "${APPIMAGE_PATH}" ]; then
+            FULL_APPIMAGE="$(pwd)/${APPIMAGE_PATH#./}"
+            APPIMAGE_NAME=$(basename "${FULL_APPIMAGE}")
+            HASH_APPIMAGE=$(sha256sum "${FULL_APPIMAGE}" | awk '{print $1}')
+            UPLOAD_FILES+=("${FULL_APPIMAGE}")
+            CHECKSUMS+="${HASH_APPIMAGE}  ${APPIMAGE_NAME}\n"
+          fi
+
+          if [ -n "${TAR_PATH}" ] && [ -f "${TAR_PATH}" ]; then
+            FULL_TAR="$(pwd)/${TAR_PATH#./}"
+            TAR_NAME=$(basename "${FULL_TAR}")
+            HASH_TAR=$(sha256sum "${FULL_TAR}" | awk '{print $1}')
+            UPLOAD_FILES+=("${FULL_TAR}")
+            CHECKSUMS+="${HASH_TAR}  ${TAR_NAME}\n"
+          fi
+
+          HERMES_VERSION="${{ steps.check_upstream.outputs.HERMES_SEMVER }}"
+          UPSTREAM_TAG="${{ steps.check_upstream.outputs.UPSTREAM_RELEASE_TAG }}"
+
+          if [ -n "${UPSTREAM_TAG}" ] && [ "${UPSTREAM_TAG}" != "${HERMES_VERSION}" ]; then
+            VERSION_DISPLAY="${HERMES_VERSION} (${UPSTREAM_TAG})"
+          else
+            VERSION_DISPLAY="${HERMES_VERSION}"
           fi
 
           BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
-          echo "Found AppImage at: ${FULL_PATH}"
-          echo "APPIMAGE_PATH=${FULL_PATH}" >> $GITHUB_OUTPUT
-          echo "APPIMAGE_NAME=${FILE_NAME}" >> $GITHUB_OUTPUT
-          echo "SHA256_HASH=${SHA256_HASH}" >> $GITHUB_OUTPUT
           echo "HERMES_VERSION=${HERMES_VERSION}" >> $GITHUB_OUTPUT
+          echo "VERSION_DISPLAY=${VERSION_DISPLAY}" >> $GITHUB_OUTPUT
           echo "BUILD_DATE=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "CHECKSUMS<<EOF" >> $GITHUB_OUTPUT
+          echo -e "${CHECKSUMS}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub Release & Upload AppImage
+          echo "UPLOAD_FILES<<EOF" >> $GITHUB_OUTPUT
+          for f in "${UPLOAD_FILES[@]}"; do
+            echo "${f}"
+          done
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release & Upload Packages
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.check_upstream.outputs.NEW_TAG }}
-          name: "Hermes Desktop ${{ steps.locate_appimage.outputs.HERMES_VERSION }} (${{ steps.check_upstream.outputs.NEW_TAG }})"
+          name: "Hermes Desktop ${{ steps.locate_artifacts.outputs.VERSION_DISPLAY }} (${{ steps.check_upstream.outputs.NEW_TAG }})"
           body: |
-            ### ⚕️ Hermes Desktop Release (${{ steps.locate_appimage.outputs.HERMES_VERSION }})
+            ### ⚕️ Hermes Desktop Release (${{ steps.locate_artifacts.outputs.VERSION_DISPLAY }})
 
             Automated build of Hermes Desktop from upstream [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
 
-            #### 📝 Upstream Commit & Changes
+            #### 📝 Upstream Details
+            - **Version**: `${{ steps.locate_artifacts.outputs.VERSION_DISPLAY }}`
             - **Commit**: [`${{ steps.check_upstream.outputs.COMMIT_SHA }}`](https://github.com/NousResearch/hermes-agent/commit/${{ steps.check_upstream.outputs.COMMIT_SHA }})
             - **Author**: `${{ steps.check_upstream.outputs.COMMIT_AUTHOR }}`
-            - **Built at**: `${{ steps.locate_appimage.outputs.BUILD_DATE }}`
+            - **Built at**: `${{ steps.locate_artifacts.outputs.BUILD_DATE }}`
 
             ##### 💬 Commit Message & What's New:
             ```text
             ${{ steps.check_upstream.outputs.COMMIT_MSG }}
             ```
 
-            #### 🔒 SHA256 Checksum
+            #### 🔒 SHA256 Checksums
             ```text
-            sha256:${{ steps.locate_appimage.outputs.SHA256_HASH }}  ${{ steps.locate_appimage.outputs.APPIMAGE_NAME }}
+            ${{ steps.locate_artifacts.outputs.CHECKSUMS }}
             ```
-          files: ${{ steps.locate_appimage.outputs.APPIMAGE_PATH }}
+          files: ${{ steps.locate_artifacts.outputs.UPLOAD_FILES }}
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-
-

@@ -1,0 +1,22 @@
+# Extracted application & downloaded packages
+hermes-desktop-app/
+*.AppImage
+*.tar.gz
+*.zip
+*.mp4
+
+# Local private configuration & runtime netfilter files (never commit)
+*.local
+!hermes-desktop.local
+*.local.*
+*.net.local
+.*.net
+.*.runtime
+.hermes-desktop-runtime.net
+hermes-desktop.net.local
+
+# OS / Editor artifacts
+.DS_Store
+*.swp
+*~
+

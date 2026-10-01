@@ -5,12 +5,12 @@
 caps.drop all
 
 # --- Network ---
-# Restrict to specific IPs via custom netfilter rules
-# NOTE: Firejail requires creating a network namespace for netfilter rules to apply.
-# If netfilter is ignored, uncomment 'net default' or pass '--net=default' to firejail.
-# net default
-netfilter ${HOME}/.config/firejail/hermes-desktop.net
+# Restrict to specific IPs via netfilter (passed via launcher)
 protocol unix,inet,inet6
+
+
+
+
 
 # --- Filesystem ---
 # Private /tmp (fresh tmpfs each run)
@@ -19,26 +19,27 @@ private-tmp
 # Home: read-only by default, whitelist what Hermes needs
 read-only ${HOME}
 read-write ${HOME}/.hermes
-read-write ${HOME}/.local/share/hermes
+read-write ${HOME}/.local/share
 
 # Electron app data & user config
 read-write ${HOME}/.config/Hermes
 read-write ${HOME}/.config/hermes-desktop
 read-write ${HOME}/.config/Hermes Desktop
 read-write ${HOME}/.config/hermes
+read-write ${HOME}/.config/kbuildsycoca6rc
+read-write ${HOME}/.config/kdeglobals
 read-write ${HOME}/.cache/Hermes
 read-write ${HOME}/.cache/hermes
 
-# XDG font cache (Electron needs this sometimes)
-read-write ${HOME}/.config/fontconfig
-read-write ${HOME}/.cache/fontconfig
+
+
 
 # PulseAudio / PipeWire (for microphone + audio)
 read-write ${HOME}/.config/pulse
 read-write ${HOME}/.config/pipewire
 read-write ${HOME}/.config/alsa
-read-only ${XDG_RUNTIME_DIR}/pulse
-read-only ${XDG_RUNTIME_DIR}/pipewire-0
+read-only $XDG_RUNTIME_DIR/pulse
+read-only $XDG_RUNTIME_DIR/pipewire-0
 
 # Block sensitive paths entirely
 blacklist ${HOME}/.ssh
@@ -90,24 +91,15 @@ seccomp
 noroot
 no3d
 notv
-nocpu
+
 
 # --- D-Bus ---
 # Remove if you want system tray / notifications
 # nodbus       # commented out — needed for PulseAudio/PipeWire
 # nodbus-user  # commented out — needed for PulseAudio/PipeWire
 
-# --- Shell ---
-shell none
-
 # --- Remounts ---
 disable-mnt
 
-# --- Environment (preserve display + audio) ---
-env DISPLAY=${DISPLAY}
-env WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
-env XAUTHORITY=${XAUTHORITY}
-env XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
-env PULSE_SERVER=${PULSE_SERVER}
-env PULSE_RUNTIME_PATH=${PULSE_RUNTIME_PATH}
+
 
