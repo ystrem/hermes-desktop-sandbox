@@ -24,62 +24,142 @@ show_help() {
     echo "Launch the Hermes Desktop AppImage inside a Firejail sandbox."
     echo ""
     echo "Environment variables:"
-    echo "  HERMES_APPIMAGE   Path to custom Hermes AppImage or executable"
+    echo "  HERMES_APPIMAGE           Path to custom Hermes AppImage or executable"
+    echo "  HERMES_SKIP_UPDATE_CHECK  Set to 1 to skip the startup check for a newer release"
+    echo ""
+    echo "On startup (interactive terminal) the installed version is compared with the newest"
+    echo "GitHub release and you are asked whether to update."
     echo ""
     echo "Options:"
-    echo "  --update, --download   Download / update the latest pre-built AppImage from GitHub"
+    echo "  --update, --download   Download / update to the latest pre-built release without asking"
     echo "  -h, --help             Show this help message and exit"
     echo ""
     exit 0
 }
 
+APP_DIR="${DOWNLOAD_DIR}/hermes-desktop-app"
+# Records "<version> <release-tag>" of the currently installed build (gitignored)
+INSTALLED_MARKER="${DOWNLOAD_DIR}/.hermes-installed-release"
+
+# Print the path of the first executable found in a directory (name differs between builds)
+find_binary() {
+    local dir="$1" name
+    for name in hermes-desktop Hermes hermes AppRun; do
+        if [ -f "${dir}/${name}" ] && [ -x "${dir}/${name}" ]; then
+            echo "${dir}/${name}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Find the newest non-draft release that has a downloadable .tar.gz (preferred) or .AppImage.
+# Sets REL_TAG, REL_FILE, REL_URL, REL_VER. Returns 1 if nothing usable was found.
+fetch_latest_release() {
+    local max_time="${1:-15}" json pick
+    json=$(curl -sS --connect-timeout 5 -m "${max_time}" -H "Accept: application/vnd.github.v3+json" \
+        "https://api.github.com/repos/${RELEASE_REPO}/releases?per_page=30" 2>/dev/null) || return 1
+    echo "${json}" | jq -e 'type == "array"' >/dev/null 2>&1 || return 1
+
+    pick=$(echo "${json}" | jq -r '
+        [ .[] | select(.draft == false) | . as $r
+          | ( [ $r.assets[] | select(.name | endswith(".tar.gz")) ][0]
+              // [ $r.assets[] | select(.name | endswith(".AppImage")) ][0] ) as $a
+          | select($a != null)
+          | [ $r.tag_name, $a.name, $a.browser_download_url ] ]
+        | .[0] // empty | @tsv') || return 1
+    [ -n "${pick}" ] || return 1
+
+    IFS=$'\t' read -r REL_TAG REL_FILE REL_URL <<< "${pick}"
+    REL_VER=$(echo "${REL_FILE}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+    return 0
+}
+
 download_latest_release() {
     echo "==> Fetching latest pre-built Hermes Desktop release from GitHub (${RELEASE_REPO})..."
-    local release_json asset_url file_name tag_name
-    release_json=$(curl -sSH "Accept: application/vnd.github.v3+json" \
-        "https://api.github.com/repos/${RELEASE_REPO}/releases/latest" 2>/dev/null || echo "")
-
-    if [ -z "${release_json}" ] || echo "${release_json}" | grep -q "Not Found"; then
-        echo "Error: Could not fetch latest release from https://api.github.com/repos/${RELEASE_REPO}/releases/latest"
-        echo "Ensure the repository is public and GitHub Actions has published a release."
-        exit 1
-    fi
-
-    tag_name=$(echo "${release_json}" | jq -r '.tag_name')
-
-    # Prefer native .tar.gz package, fallback to .AppImage
-    asset_url=$(echo "${release_json}" | jq -r '.assets[] | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -n 1)
-    file_name=$(echo "${release_json}" | jq -r '.assets[] | select(.name | endswith(".tar.gz")) | .name' | head -n 1)
-
-    if [ -z "${asset_url}" ] || [ "${asset_url}" = "null" ]; then
-        asset_url=$(echo "${release_json}" | jq -r '.assets[] | select(.name | endswith(".AppImage")) | .browser_download_url' | head -n 1)
-        file_name=$(echo "${release_json}" | jq -r '.assets[] | select(.name | endswith(".AppImage")) | .name' | head -n 1)
-    fi
-
-    if [ -z "${asset_url}" ] || [ "${asset_url}" = "null" ]; then
-        echo "Error: No .tar.gz or .AppImage asset found in latest GitHub release (${tag_name})."
-        exit 1
+    if ! fetch_latest_release 30; then
+        echo "Error: No release with a downloadable .tar.gz or .AppImage found in ${RELEASE_REPO}."
+        echo "Ensure the repository is public and GitHub Actions has published a release with files attached."
+        return 1
     fi
 
     mkdir -p "${DOWNLOAD_DIR}"
-    local target_path="${DOWNLOAD_DIR}/${file_name}"
+    local target_path="${DOWNLOAD_DIR}/${REL_FILE}"
 
-    echo "==> Downloading ${file_name} (${tag_name}) to ${DOWNLOAD_DIR}..."
-    curl -L --progress-bar -o "${target_path}" "${asset_url}"
-    
-    if [[ "${file_name}" == *.tar.gz ]]; then
-        local app_dir="${DOWNLOAD_DIR}/hermes-desktop-app"
-        echo "==> Extracting native Linux package to ${app_dir}..."
-        mkdir -p "${app_dir}"
-        tar -xzf "${target_path}" -C "${app_dir}"
-        chmod +x "${app_dir}/hermes-desktop" 2>/dev/null || true
-        APPIMAGE="${app_dir}/hermes-desktop"
+    echo "==> Downloading ${REL_FILE} (${REL_TAG}) to ${DOWNLOAD_DIR}..."
+    if ! curl -fL --progress-bar -o "${target_path}" "${REL_URL}"; then
+        echo "Error: Download failed."
+        return 1
+    fi
+
+    if [[ "${REL_FILE}" == *.tar.gz ]]; then
+        local new_dir="${APP_DIR}.new" bin
+        echo "==> Extracting native Linux package to ${APP_DIR}..."
+        rm -rf "${new_dir}"
+        mkdir -p "${new_dir}"
+        if ! tar -xzf "${target_path}" -C "${new_dir}"; then
+            echo "Error: Extraction failed."
+            rm -rf "${new_dir}"
+            return 1
+        fi
+        if ! bin=$(find_binary "${new_dir}"); then
+            echo "Error: No executable (hermes-desktop / Hermes / AppRun) found in ${REL_FILE}."
+            rm -rf "${new_dir}"
+            return 1
+        fi
+        # Swap in the new version only after it was extracted and verified
+        rm -rf "${APP_DIR}.prev"
+        if [ -d "${APP_DIR}" ]; then
+            mv "${APP_DIR}" "${APP_DIR}.prev"
+        fi
+        mv "${new_dir}" "${APP_DIR}"
+        rm -rf "${APP_DIR}.prev"
+        APPIMAGE="${APP_DIR}/$(basename "${bin}")"
     else
         chmod +x "${target_path}"
         APPIMAGE="${target_path}"
+        # Force re-extraction of the new AppImage on next step
+        rm -rf "${APP_DIR}"
     fi
 
-    echo "  ✓ Download and extraction complete: ${APPIMAGE}"
+    echo "${REL_VER} ${REL_TAG}" > "${INSTALLED_MARKER}"
+    echo "  ✓ Download and extraction complete: ${APPIMAGE} (${REL_VER})"
+}
+
+# At startup: compare installed version with the newest release and ask whether to update.
+# Silent when offline, non-interactive, or already up to date.
+check_for_update() {
+    if [ ! -t 0 ] || [ ! -t 1 ] || [ "${HERMES_SKIP_UPDATE_CHECK:-0}" = "1" ]; then
+        return 0
+    fi
+    fetch_latest_release 8 || return 0
+    [ -n "${REL_VER}" ] || return 0
+
+    local installed_ver="" installed_tag="" newer=0
+    if [ -f "${INSTALLED_MARKER}" ]; then
+        read -r installed_ver installed_tag < "${INSTALLED_MARKER}" || true
+    fi
+
+    if [ -z "${installed_ver}" ]; then
+        newer=1
+    elif [ "${REL_VER}" != "${installed_ver}" ] && \
+         [ "$(printf '%s\n%s\n' "${installed_ver}" "${REL_VER}" | sort -V | tail -n 1)" = "${REL_VER}" ]; then
+        newer=1
+    fi
+    [ "${newer}" = "1" ] || return 0
+
+    echo "💡 Nová verze Hermes Desktop: ${REL_VER} (${REL_TAG})"
+    echo "   Nainstalováno: ${installed_ver:-neznámá verze}"
+    local answer=""
+    read -r -p "   Aktualizovat teď? [a/N] " answer || true
+    case "${answer}" in
+        [aAyY]*)
+            if ! download_latest_release; then
+                echo "⚠ Aktualizace selhala, spouštím stávající verzi."
+            fi
+            ;;
+    esac
+    return 0
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -87,7 +167,8 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 if [[ "${1:-}" == "--update" || "${1:-}" == "--download" ]]; then
-    download_latest_release
+    download_latest_release || exit 1
+    HERMES_SKIP_UPDATE_CHECK=1
     shift
 fi
 
@@ -107,13 +188,13 @@ if [ -z "${APPIMAGE}" ]; then
 
         for dir in "${SEARCH_DIRS[@]}"; do
             if [ -d "${dir}" ]; then
-                # Check for direct native binary
-                if [ -x "${dir}/hermes-desktop" ]; then
-                    APPIMAGE="${dir}/hermes-desktop"
+                # Check for direct native binary (hermes-desktop / Hermes / AppRun)
+                if FOUND=$(find_binary "${dir}"); then
+                    APPIMAGE="${FOUND}"
                     break
                 fi
-                if [ -x "${dir}/linux-unpacked/hermes-desktop" ]; then
-                    APPIMAGE="${dir}/linux-unpacked/hermes-desktop"
+                if FOUND=$(find_binary "${dir}/linux-unpacked"); then
+                    APPIMAGE="${FOUND}"
                     break
                 fi
                 # Check for .AppImage files
@@ -127,25 +208,15 @@ if [ -z "${APPIMAGE}" ]; then
     fi
 fi
 
-# If still not found, offer to download automatically
+# If still not found, download automatically
 if [ -z "${APPIMAGE}" ]; then
     echo "No local Hermes executable or package found."
     echo "Attempting automatic download of pre-built release from GitHub..."
-    download_latest_release
+    download_latest_release || exit 1
+else
+    # Check for a newer release and ask whether to update (interactive terminals only)
+    check_for_update
 fi
-
-# Non-blocking update check (quick 1s timeout to avoid slowing down startup)
-(
-    latest_tag=$(curl -s --connect-timeout 1 -m 2 -H "Accept: application/vnd.github.v3+json" \
-        "https://api.github.com/repos/${RELEASE_REPO}/releases/latest" 2>/dev/null | jq -r '.tag_name' 2>/dev/null || echo "")
-    if [ -n "${latest_tag}" ] && [ "${latest_tag}" != "null" ]; then
-        current_name=$(basename "${APPIMAGE}")
-        if [[ "${current_name}" != *"${latest_tag}"* ]]; then
-            echo "💡 Tip: A new Hermes Desktop release (${latest_tag}) is available!" >&2
-            echo "   Run './run-hermes-desktop.sh --update' to download it." >&2
-        fi
-    fi
-) &>/dev/null &
 
 # If target is an AppImage, extract it once locally to eliminate FUSE runtime issues completely
 if [[ "${APPIMAGE}" == *.AppImage ]]; then

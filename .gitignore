@@ -1,5 +1,8 @@
 # Extracted application & downloaded packages
 hermes-desktop-app/
+hermes-desktop-app.new/
+hermes-desktop-app.prev/
+.hermes-installed-release
 *.AppImage
 *.tar.gz
 *.zip

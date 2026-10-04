@@ -188,7 +188,7 @@ jobs:
 
           echo "UPLOAD_FILES<<EOF" >> $GITHUB_OUTPUT
           for f in "${UPLOAD_FILES[@]}"; do
-            echo "${f}"
+            echo "${f}" >> $GITHUB_OUTPUT
           done
           echo "EOF" >> $GITHUB_OUTPUT
 
