@@ -254,26 +254,46 @@ fi
 APPIMAGE_FLAGS+=("--no-sandbox" "--disable-setuid-sandbox" "--disable-gpu" "--disable-dev-shm-usage")
 
 
-# Build runtime netfilter rules (combining public template with gitignored private overrides)
+# Build runtime netfilter rules: the public template plus destination ACCEPTs
+# from HERMES_REMOTE_HOSTS / HERMES_REMOTE_IPS (env) and the gitignored
+# hermes-desktop.net.local, all injected just above the `-A OUTPUT -j REJECT`
+# default-deny anchor so the template stays machine-independent.
 RUNTIME_NET="${SCRIPT_DIR}/.hermes-desktop-runtime.net"
 LOCAL_NET="${SCRIPT_DIR}/hermes-desktop.net.local"
 BASE_NET="${SCRIPT_DIR}/hermes-desktop.net"
 
 NETFILTER_FLAGS=()
 if [ -f "${BASE_NET}" ]; then
+    # A remote Hermes backend must be reachable. Pass it either as a bare IP or
+    # a hostname (resolved by Firejail's DNS), space- or comma-separated:
+    #   HERMES_REMOTE_HOSTS="192.168.10.40 hermes.lan" ./run-hermes-desktop.sh
+    INJECT_TMP="$(mktemp)"
+    for entry in ${HERMES_REMOTE_HOSTS:-} ${HERMES_REMOTE_IPS:-}; do
+        for dest in ${entry//,/ }; do
+            echo "-A OUTPUT -d ${dest} -j ACCEPT" >> "${INJECT_TMP}"
+        done
+    done
     if [ -f "${LOCAL_NET}" ]; then
-        awk '
-            /^-A OUTPUT -j REJECT/ {
-                while ((getline line < "'"${LOCAL_NET}"'") > 0) {
-                    print line
-                }
-            }
-            { print }
-        ' "${BASE_NET}" > "${RUNTIME_NET}"
-        NETFILTER_FLAGS+=("--netfilter=${RUNTIME_NET}")
-    else
-        NETFILTER_FLAGS+=("--netfilter=${BASE_NET}")
+        cat "${LOCAL_NET}" >> "${INJECT_TMP}"
     fi
+    awk -v inject="${INJECT_TMP}" '
+        /^-A OUTPUT -j REJECT/ {
+            while ((getline line < inject) > 0) {
+                if (line != "") print line
+            }
+        }
+        { print }
+    ' "${BASE_NET}" > "${RUNTIME_NET}"
+    rm -f "${INJECT_TMP}"
+    NETFILTER_FLAGS+=("--netfilter=${RUNTIME_NET}")
+fi
+
+# Firejail only enforces netfilter rules when the sandbox has its own network
+# namespace. Without one the rules above (and the default deny) are ignored and
+# the sandbox applies NO network restriction. Opt in to the strict path with:
+#   HERMES_SANDBOX_NETNS=1
+if [ "${HERMES_SANDBOX_NETNS:-0}" = "1" ]; then
+    NETFILTER_FLAGS+=("--net=default")
 fi
 
 if [ ! -f "${PROFILE}" ]; then

@@ -55,20 +55,43 @@ cd hermes-desktop-sandbox
 
 ## Network isolation
 
-By default, Hermes can **only** talk to:
+> **How this actually behaves (read this first).** Firejail applies the
+> `hermes-desktop.net` rules **only when the sandbox has its own network namespace**.
+> This profile does not create one by default, so as shipped the netfilter chain —
+> including its default-deny — is **inactive**. Opt into the strict, filtered path with
+> `HERMES_SANDBOX_NETNS=1` (this runs Firejail with `--net=default`). Verify connectivity
+> on your host before making it the default: joining a fresh netns can break loopback on
+> some setups. See `SECURITY-REVIEW.md` (High → "Netfilter rules silently no-op").
+
+When a namespace **is** active, Hermes can talk to:
 
 - `localhost` (127.0.0.1) — the local Hermes gateway
-- DNS (for name resolution)
-- **Whitelisted IPs/hosts** specified in `hermes-desktop.net`
+- DNS (name resolution) and ICMP (path-MTU discovery)
+- **Whitelisted destinations** — see below
 
-To whitelist your local server or API endpoints, edit `~/.config/firejail/hermes-desktop.net` and uncomment/add rules:
+### Whitelisting destinations
+
+**Remote backend (recommended way)** — pass the backend at launch time; the launcher
+injects an `ACCEPT` for each entry just above the default-deny:
+
+```bash
+HERMES_REMOTE_HOSTS="192.168.10.40" ./run-hermes-desktop.sh
+# hostnames work too (resolved via DNS), and you can pass several, space- or comma-separated:
+HERMES_REMOTE_HOSTS="hermes.lan,api.deepseek.com" ./run-hermes-desktop.sh
+```
+
+`HERMES_REMOTE_IPS` is accepted as an alias. For anything more permanent, add raw rules to
+the gitignored `~/.config/firejail/hermes-desktop.net.local` — they are appended to the same
+injection point:
 
 ```
 -A OUTPUT -d 192.168.1.100/32 -j ACCEPT
 -A OUTPUT -d api.deepseek.com -j ACCEPT
 ```
 
-*Note:* For Firejail netfilter rules to take effect, Firejail requires an active network namespace. You can pass `--net=default` or uncomment `net default` in `hermes-desktop.local`.
+Rules are processed top to bottom, so **every `ACCEPT` must precede the final
+`-A OUTPUT -j REJECT` / `-A INPUT -j DROP`**. The injection happens automatically at that
+anchor, so you do not need to worry about ordering yourself.
 
 ## Environment Variables & Configuration
 
@@ -81,6 +104,8 @@ All paths and repository parameters are fully configurable via environment varia
 | `HERMES_PROFILE_DIR` | Firejail profiles directory | `${HOME}/.config/firejail` |
 | `HERMES_BIN_DIR` | Executable launcher bin directory | `${HOME}/.local/bin` |
 | `HERMES_DESKTOP_DIR` | XDG desktop entries directory | `${HOME}/.local/share/applications` |
+| `HERMES_REMOTE_HOSTS` | Host/IP(s) of a remote Hermes backend to whitelist in the netfilter rules (space- or comma-separated; `HERMES_REMOTE_IPS` is an alias) | (empty) |
+| `HERMES_SANDBOX_NETNS` | `1` runs Firejail with `--net=default` so the netfilter rules actually apply (strict network isolation). Verify on your host first. | `0` (off) |
 
 
 ## Microphone (dictation)
