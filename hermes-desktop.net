@@ -1,27 +1,49 @@
-# Allow loopback (both outbound and inbound)
--A OUTPUT -o lo -j ACCEPT
--A INPUT -i lo -j ACCEPT
+# Firejail netfilter for the Hermes Desktop sandbox.
+#
+# Applied only when Firejail runs its own network namespace (see the "Network
+# isolation" section of README.md). Order matters: every ACCEPT must precede
+# the final default-deny REJECT/DROP at the bottom.
+#
+# Add your own destinations (remote backend, API endpoints) either in the
+# gitignored hermes-desktop.net.local file, or — for a remote Hermes backend —
+# with the HERMES_REMOTE_HOSTS environment variable at launch time:
+#
+#     HERMES_REMOTE_HOSTS="192.168.10.40" ./run-hermes-desktop.sh
+#
+# The launcher injects those ACCEPT lines just above the `-A OUTPUT -j REJECT`
+# anchor below, so this template stays machine-independent.
 
-# Allow established/related connections (responses to our outbound connections)
--A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+# --- Loopback (both directions) ---
+-A OUTPUT -o lo -j ACCEPT
+-A INPUT  -i lo -j ACCEPT
+
+# --- Replies to connections we opened (conntrack) ---
+# Without these, even a loopback HTTP reply is dropped by the INPUT chain.
+-A INPUT  -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
+# --- ICMP (path-MTU discovery) ---
+# Inbound ICMP type 3 "fragmentation needed" is what lets the kernel shrink
+# the MSS when a path has a smaller MTU. Leave it out and large responses
+# (config, session listings, transcripts) silently stall until the client
+# times out, while small requests still succeed — the classic "sometimes works,
+# mostly times out" symptom over a real network interface.
+-A OUTPUT -p icmp -j ACCEPT
+-A INPUT  -p icmp -j ACCEPT
 
-# === Local network ===
-# Gateway — communicates with Hermes gateway on the same machine
+# --- DNS (queries; replies are covered by conntrack above) ---
+# Resolves the Hermes backend, update checks, and any hostname in
+# HERMES_REMOTE_HOSTS. Without these, hostname-based destinations never resolve.
+-A OUTPUT -p udp --dport 53 -j ACCEPT
+-A OUTPUT -p tcp --dport 53 -j ACCEPT
+
+# --- Local / remote Hermes backend ---
+# Loopback is the on-host gateway. A REMOTE gateway must appear here — either
+# via HERMES_REMOTE_HOSTS (see header) or an explicit line:
+#   -A OUTPUT -d 192.168.10.40/32 -j ACCEPT
 -A OUTPUT -d 127.0.0.1/32 -j ACCEPT
 -A OUTPUT -d ::1/128 -j ACCEPT
 
-# === Local network / Remote Gateway ===
-# Set your private gateway IP in hermes-desktop.net.local (gitignored)
-# Example:
-# -A OUTPUT -d 192.168.1.100/32 -j ACCEPT
-
-# Drop everything else
+# --- Default deny (keep these last; the launcher inserts extra ACCEPTs here) ---
 -A OUTPUT -j REJECT
--A INPUT -j DROP
-
-
-
-
-
+-A INPUT  -j DROP

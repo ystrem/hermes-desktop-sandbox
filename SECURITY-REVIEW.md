@@ -10,8 +10,9 @@ script in this repository. Findings are ordered by severity.
 The sandbox model is sound: all capabilities are dropped, `noroot` and `seccomp` are
 enabled, the home directory is read-only with explicit whitelists, `/tmp` is private, and
 sensitive paths are blacklisted. The main gaps are not in what is written, but in what is
-**missing** — specifically X11 isolation, `/dev/input`, unix-socket escape paths, and a
-likely-broken `INPUT` chain in the netfilter rules.
+**missing** — specifically X11 isolation, `/dev/input`, unix-socket escape paths, and the
+netfilter **`INPUT` chain and namespace enforcement** (the former fixed 2026-10-05, the
+latter only partly addressed — see below).
 
 ## Critical
 
@@ -25,17 +26,22 @@ likely-broken `INPUT` chain in the netfilter rules.
   (`env WAYLAND_DISPLAY` without XWayland). This is the largest real gap for a desktop
   sandbox.
 
-- **Netfilter `-A INPUT -j DROP` with no `ESTABLISHED` accept.**
+- **Netfilter `-A INPUT -j DROP` with no `ESTABLISHED` accept.** ✅ FIXED (2026-10-05)
 
-  The file only allows replies on the `OUTPUT` chain, but inbound packets (DNS replies,
+  The file only allowed replies on the `OUTPUT` chain, but inbound packets (DNS replies,
   HTTP replies, even loopback to the 127.0.0.1 gateway) traverse `INPUT` and hit `DROP`.
   This either breaks networking entirely or relies on internal Firejail rules that are not
-  guaranteed. Add explicitly:
+  guaranteed. `hermes-desktop.net` now opens with the two required accepts:
 
   ```
   -A INPUT -i lo -j ACCEPT
   -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
   ```
+
+  Verified symptom this reproduces: with the old chain an app connecting to a **remote**
+  backend (`http://<lan-ip>:8787`) sends the request but never sees the reply, so every
+  call times out client-side (`Timed out connecting to Hermes backend`) while the server
+  logs the request as handled — "server looks healthy, client times out on everything".
 
 - **Unix-socket escape → Docker/Podman/containerd socket.**
 
@@ -46,6 +52,21 @@ likely-broken `INPUT` chain in the netfilter rules.
   these paths.
 
 ## High
+
+- **Netfilter rules silently no-op without a network namespace.** ⚠️ PARTIALLY ADDRESSED
+
+  Firejail enforces `--netfilter=` only when the sandbox has its own network namespace. The
+  profile never enabled one, and the wrapper passed no `--net=default`, so the entire
+  `hermes-desktop.net` chain (including its default-deny) was **never applied** — the sandbox
+  provided no network restriction at all while appearing to. The wrapper now supports the
+  strict path explicitly via `HERMES_SANDBOX_NETNS=1` (which adds `--net=default`), but it is
+  **opt-in** because joining a fresh netns can itself break loopback/connectivity on some
+  setups. Default stays off to avoid regressing a working launcher. Flip the default once the
+  strict path is verified working on the target host.
+
+  Note this is the inverse failure of the `INPUT`-chain bug: there the rules applied and were
+  wrong; here the rules are right but were never applied. Both produce "the network behaves
+  unexpectedly and the sandbox pretends it does not."
 
 - **Missing `private-dev` — access to `/dev/input`.**
 
@@ -98,8 +119,11 @@ rest of the desktop.
 
 ## Recommended next steps
 
-1. Fix the netfilter `INPUT` chain.
-2. Add `private-dev` + `noblacklist /dev/snd`.
-3. Add X11 isolation (`x11 xorg`) or native Wayland.
-4. Blacklist runtime sockets (docker/podman/containerd).
-5. Reconsider D-Bus exposure.
+1. ~~Fix the netfilter `INPUT` chain.~~ **Done 2026-10-05** — also added ICMP (path-MTU)
+   and DNS accepts, plus `HERMES_REMOTE_HOSTS` for a remote backend.
+2. Verify the strict netns path (`HERMES_SANDBOX_NETNS=1`) on the target host, then make it
+   the default so the netfilter rules actually apply (see High finding above).
+3. Add `private-dev` + `noblacklist /dev/snd`.
+4. Add X11 isolation (`x11 xorg`) or native Wayland.
+5. Blacklist runtime sockets (docker/podman/containerd).
+6. Reconsider D-Bus exposure.
