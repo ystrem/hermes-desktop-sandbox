@@ -14,7 +14,8 @@ on:
 
 env:
   UPSTREAM_REPO: "NousResearch/hermes-agent"
-  NODE_VERSION: "22"
+  NODE_VERSION: "26"
+  PNPM_VERSION: "12.15.0"
 
 permissions:
   contents: write
@@ -103,6 +104,12 @@ jobs:
           cd hermes-agent-repo
           git checkout ${{ steps.check_upstream.outputs.COMMIT_SHA }}
 
+      - name: Setup pnpm
+        if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - name: Setup Node.js
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
         uses: actions/setup-node@v4
@@ -113,7 +120,7 @@ jobs:
         if: steps.check_upstream.outputs.BUILD_NEEDED == 'true'
         run: |
           cd hermes-agent-repo
-          npm ci || npm install
+          pnpm install --frozen-lockfile
           if [ -d "apps/desktop" ]; then
             cd apps/desktop
             # Inject real version into apps/desktop/package.json so Electron/UI doesn't report 0.0.0
@@ -121,11 +128,10 @@ jobs:
             if [ -n "${REAL_VER}" ]; then
               jq --arg v "${REAL_VER}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
             fi
-            npm ci || npm install
-            npm run build 2>/dev/null || true
+            pnpm run build 2>/dev/null || true
 
-            # Build native AppImage
-            CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --linux AppImage -c.extraMetadata.version="${REAL_VER}" || CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:linux || CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack
+            # Build native AppImage and unpacked distribution
+            CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --linux AppImage -c.extraMetadata.version="${REAL_VER}" || CSC_IDENTITY_AUTO_DISCOVERY=false pnpm run dist:linux || CSC_IDENTITY_AUTO_DISCOVERY=false pnpm run pack
 
             # Also create tar.gz from linux-unpacked if available
             if [ -d "release/linux-unpacked" ]; then
