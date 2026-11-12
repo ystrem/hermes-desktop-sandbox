@@ -121,6 +121,10 @@ jobs:
         run: |
           cd hermes-agent-repo
           pnpm install --frozen-lockfile
+
+          # Prepare pinned Electron host runtime (required by upstream packaging scripts)
+          node scripts/build/electron-runtime.mjs --source .
+
           if [ -d "apps/desktop" ]; then
             cd apps/desktop
             # Inject real version into apps/desktop/package.json so Electron/UI doesn't report 0.0.0
@@ -128,10 +132,15 @@ jobs:
             if [ -n "${REAL_VER}" ]; then
               jq --arg v "${REAL_VER}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
             fi
-            pnpm run build 2>/dev/null || true
+            pnpm run build
+
+            # Ensure downloaded packaging tools (icon-tool.js, etc.) run as CommonJS inside "type": "module" root
+            mkdir -p build build/prepared-packaging-tools
+            echo '{"type": "commonjs"}' > build/package.json
+            echo '{"type": "commonjs"}' > build/prepared-packaging-tools/package.json
 
             # Build native AppImage and unpacked distribution
-            CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --linux AppImage -c.extraMetadata.version="${REAL_VER}" || CSC_IDENTITY_AUTO_DISCOVERY=false pnpm run dist:linux || CSC_IDENTITY_AUTO_DISCOVERY=false pnpm run pack
+            CSC_IDENTITY_AUTO_DISCOVERY=false pnpm run dist:linux || CSC_IDENTITY_AUTO_DISCOVERY=false pnpm run builder --dir --publish never --linux || CSC_IDENTITY_AUTO_DISCOVERY=false pnpm run pack
 
             # Also create tar.gz from linux-unpacked if available
             if [ -d "release/linux-unpacked" ]; then
